@@ -9,7 +9,8 @@ import java.util.concurrent.atomic.AtomicBoolean
 class SystemHook : IXposedHookLoadPackage {
     override fun handleLoadPackage(param: XC_LoadPackage.LoadPackageParam) {
         if (param.packageName != "android" || Process.myUid() != 1000 ||
-            !installed.compareAndSet(false, true)) return
+            !installed.compareAndSet(false, true)
+        ) return
         try {
             val env = BridgeEnvironment(param.classLoader)
             val packages = PackageHooks(env).install(param.classLoader)
@@ -17,8 +18,12 @@ class SystemHook : IXposedHookLoadPackage {
             val services = ServiceHooks(env).install(param.classLoader)
             env.ready = packages && grants && services
             HookTools.log("installed: packages=$packages grants=$grants services=$services ready=${env.ready}")
-        } catch (e: Exception) { HookTools.failure("install", e) }
+        } catch (e: Exception) {
+            HookTools.failure("install", e)
+        }
     }
 
-    private companion object { val installed = AtomicBoolean(false) }
+    private companion object {
+        val installed = AtomicBoolean(false)
+    }
 }

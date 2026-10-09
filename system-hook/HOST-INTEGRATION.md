@@ -43,11 +43,11 @@ in Gearslip. Do not put this host implementation in `system-hook`.
 
 Wire contract verified from the supplied APK:
 
-| Transaction | Input | Result |
-| --- | --- | --- |
-| `INTERFACE_TRANSACTION` | none | descriptor string |
-| `1` (`registerMediaSessionToken`) | interface token, typed `Bundleable` containing `android.support.v4.media.session.MediaSessionCompat.Token` | synchronous `writeNoException()` |
-| `16777215` (`getInterfaceVersion`) | interface token | synchronous `writeNoException()`, integer `1` |
+| Transaction                        | Input                                                                                                      | Result                                        |
+|------------------------------------|------------------------------------------------------------------------------------------------------------|-----------------------------------------------|
+| `INTERFACE_TRANSACTION`            | none                                                                                                       | descriptor string                             |
+| `1` (`registerMediaSessionToken`)  | interface token, typed `Bundleable` containing `android.support.v4.media.session.MediaSessionCompat.Token` | synchronous `writeNoException()`              |
+| `16777215` (`getInterfaceVersion`) | interface token                                                                                            | synchronous `writeNoException()`, integer `1` |
 
 Registration must do real work: decode the token, verify the caller belongs to the
 currently connected car application, and verify the resulting MediaController's

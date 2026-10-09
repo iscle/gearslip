@@ -14,10 +14,18 @@ import org.junit.Test
 
 abstract class RelayContract {
     private val host = "app.seb3thehacker.gearslip.dev"
-    private fun session() = BridgeSession(Process.myUid(), host, Process.myUid(),
-        ComponentName("test.car.app", "test.car.app.Service"), BridgePolicy.TEMPLATE_ACTION, Binder(), null)
+    private fun session() = BridgeSession(
+        Process.myUid(),
+        host,
+        Process.myUid(),
+        ComponentName("test.car.app", "test.car.app.Service"),
+        BridgePolicy.TEMPLATE_ACTION,
+        Binder(),
+        null
+    )
 
-    @Test fun realAndroidXHandshakePreservesApiAndCallback() {
+    @Test
+    fun realAndroidXHandshakePreservesApiAndCallback() {
         val callback = Binder()
         var received = false
         val target = object : Binder() {
@@ -41,10 +49,13 @@ abstract class RelayContract {
             data.writeStrongBinder(callback)
             assertTrue(relay.transact(11, data, null, IBinder.FLAG_ONEWAY))
             assertTrue(received)
-        } finally { data.recycle() }
+        } finally {
+            data.recycle()
+        }
     }
 
-    @Test fun browserDisconnectUsesTheSameWrappedCallback() {
+    @Test
+    fun browserDisconnectUsesTheSameWrappedCallback() {
         var wrapped: IBinder? = null
         val original = Binder()
         val target = object : Binder() {
@@ -53,10 +64,14 @@ abstract class RelayContract {
                 when (code) {
                     1 -> {
                         assertEquals(BridgePolicy.GOOGLE_HOST, data.readString())
-                        assertEquals("kept", data.readTypedObject(Bundle.CREATOR)!!.getString("hint"))
+                        assertEquals(
+                            "kept",
+                            data.readTypedObject(Bundle.CREATOR)!!.getString("hint")
+                        )
                         wrapped = data.readStrongBinder()
                         assertNotSame(original, wrapped)
                     }
+
                     2 -> assertSame(wrapped, data.readStrongBinder())
                 }
                 assertEquals(0, data.dataAvail())
@@ -74,11 +89,14 @@ abstract class RelayContract {
                 }
                 data.writeStrongBinder(original)
                 assertTrue(relay.transact(code, data, null, IBinder.FLAG_ONEWAY))
-            } finally { data.recycle() }
+            } finally {
+                data.recycle()
+            }
         }
     }
 
-    @Test fun unauthorizedCallerNeverReachesTarget() {
+    @Test
+    fun unauthorizedCallerNeverReachesTarget() {
         var forwarded = false
         val target = object : Binder() {
             override fun onTransact(code: Int, data: Parcel, reply: Parcel?, flags: Int): Boolean {
@@ -95,21 +113,37 @@ abstract class RelayContract {
             relay.transact(10, data, reply, 0)
             assertThrows(SecurityException::class.java) { reply.readException() }
             assertFalse(forwarded)
-        } finally { data.recycle(); reply.recycle() }
+        } finally {
+            data.recycle(); reply.recycle()
+        }
     }
 
-    @Test fun unknownHandshakeAndWrongClaimedHostAreRejected() {
-        assertThrows(IllegalArgumentException::class.java) { HandshakeParcel.rewrite(Bundle(), host) }
+    @Test
+    fun unknownHandshakeAndWrongClaimedHostAreRejected() {
+        assertThrows(IllegalArgumentException::class.java) {
+            HandshakeParcel.rewrite(
+                Bundle(),
+                host
+            )
+        }
         val data = Parcel.obtain()
         try {
             Bundleable.create(HandshakeInfo("untrusted.package", 8)).writeToParcel(data, 0)
             data.setDataPosition(0)
             val bundle = data.readBundle(javaClass.classLoader)!!
-            assertThrows(IllegalArgumentException::class.java) { HandshakeParcel.rewrite(bundle, host) }
-        } finally { data.recycle() }
+            assertThrows(IllegalArgumentException::class.java) {
+                HandshakeParcel.rewrite(
+                    bundle,
+                    host
+                )
+            }
+        } finally {
+            data.recycle()
+        }
     }
 
-    @Test fun subscriptionsAndItemsPreserveArgumentsAndCallbackIdentity() {
+    @Test
+    fun subscriptionsAndItemsPreserveArgumentsAndCallbackIdentity() {
         val original = Binder()
         val subscription = Binder()
         var wrapped: IBinder? = null
@@ -122,11 +156,18 @@ abstract class RelayContract {
                         data.readString(); data.readTypedObject(Bundle.CREATOR)
                         wrapped = data.readStrongBinder()
                     }
+
                     else -> {
                         assertEquals("media-id", data.readString())
                         if (code == 5) assertNull(data.readTypedObject(android.os.ResultReceiver.CREATOR))
-                        if (code == 6 || code == 7) assertSame(subscription, data.readStrongBinder())
-                        if (code == 6) assertEquals(7, data.readTypedObject(Bundle.CREATOR)!!.getInt("page"))
+                        if (code == 6 || code == 7) assertSame(
+                            subscription,
+                            data.readStrongBinder()
+                        )
+                        if (code == 6) assertEquals(
+                            7,
+                            data.readTypedObject(Bundle.CREATOR)!!.getInt("page")
+                        )
                         assertSame(wrapped, data.readStrongBinder())
                         calls++
                     }
@@ -150,20 +191,29 @@ abstract class RelayContract {
                 }
                 data.writeStrongBinder(original)
                 relay.transact(code, data, null, IBinder.FLAG_ONEWAY)
-            } finally { data.recycle() }
+            } finally {
+                data.recycle()
+            }
         }
         assertEquals(5, calls)
     }
 
-    @Test fun returnedCompatMessengerIsMediatedForRegistrationAndSearch() {
+    @Test
+    fun returnedCompatMessengerIsMediatedForRegistrationAndSearch() {
         var messengerFromHost: IBinder? = null
         var calls = 0
         val messengerFromApp = object : Binder() {
             override fun onTransact(code: Int, data: Parcel, reply: Parcel?, flags: Int): Boolean {
                 data.enforceInterface(BridgePolicy.MESSENGER_DESCRIPTOR)
                 val message = data.readTypedObject(Message.CREATOR)!!
-                if (message.what == 6) assertEquals(BridgePolicy.GOOGLE_HOST, message.data.getString("data_package_name"))
-                if (message.what == 8) assertEquals("song", message.data.getString("data_search_query"))
+                if (message.what == 6) assertEquals(
+                    BridgePolicy.GOOGLE_HOST,
+                    message.data.getString("data_package_name")
+                )
+                if (message.what == 8) assertEquals(
+                    "song",
+                    message.data.getString("data_search_query")
+                )
                 message.recycle()
                 calls++
                 return true
@@ -174,7 +224,8 @@ abstract class RelayContract {
                 data.enforceInterface(BridgePolicy.CALLBACK_DESCRIPTOR)
                 assertEquals("root", data.readString())
                 data.readTypedObject(android.media.session.MediaSession.Token.CREATOR)
-                messengerFromHost = data.readTypedObject(Bundle.CREATOR)!!.getBinder("extra_messenger")
+                messengerFromHost =
+                    data.readTypedObject(Bundle.CREATOR)!!.getBinder("extra_messenger")
                 return true
             }
         }
@@ -188,9 +239,16 @@ abstract class RelayContract {
                     response.writeInterfaceToken(BridgePolicy.CALLBACK_DESCRIPTOR)
                     response.writeString("root")
                     response.writeTypedObject<android.media.session.MediaSession.Token>(null, 0)
-                    response.writeTypedObject(Bundle().apply { putBinder("extra_messenger", messengerFromApp) }, 0)
+                    response.writeTypedObject(Bundle().apply {
+                        putBinder(
+                            "extra_messenger",
+                            messengerFromApp
+                        )
+                    }, 0)
                     callback.transact(1, response, null, IBinder.FLAG_ONEWAY)
-                } finally { response.recycle() }
+                } finally {
+                    response.recycle()
+                }
                 return true
             }
         }
@@ -198,9 +256,13 @@ abstract class RelayContract {
         val data = Parcel.obtain()
         try {
             data.writeInterfaceToken(BridgePolicy.BROWSER_DESCRIPTOR)
-            data.writeString(host); data.writeTypedObject<Bundle>(null, 0); data.writeStrongBinder(hostCallback)
+            data.writeString(host); data.writeTypedObject<Bundle>(null, 0); data.writeStrongBinder(
+                hostCallback
+            )
             relay.transact(1, data, null, IBinder.FLAG_ONEWAY)
-        } finally { data.recycle() }
+        } finally {
+            data.recycle()
+        }
         assertNotNull(messengerFromHost)
         assertNotSame(messengerFromApp, messengerFromHost)
         for (what in listOf(6, 8)) {
@@ -216,7 +278,9 @@ abstract class RelayContract {
                 request.writeInterfaceToken(BridgePolicy.MESSENGER_DESCRIPTOR)
                 request.writeTypedObject(message, 0)
                 messengerFromHost!!.transact(1, request, null, IBinder.FLAG_ONEWAY)
-            } finally { request.recycle(); message.recycle() }
+            } finally {
+                request.recycle(); message.recycle()
+            }
         }
         assertEquals(2, calls)
     }

@@ -23,19 +23,27 @@ internal class CarServiceRelay(
             reply?.writeString(descriptor)
             return true
         }
-        require(BridgePolicy.allowedTransaction(descriptor, code)) { "Unsupported car transaction $code" }
+        require(
+            BridgePolicy.allowedTransaction(
+                descriptor,
+                code
+            )
+        ) { "Unsupported car transaction $code" }
         val output = Parcel.obtain()
         try {
             when {
                 descriptor == BridgePolicy.CAR_DESCRIPTOR && code == 11 ->
                     HandshakeParcel.copyHandshake(data, output, session.hostPackage)
+
                 descriptor == BridgePolicy.BROWSER_DESCRIPTOR -> copyBrowser(code, data, output)
                 descriptor == BridgePolicy.MESSENGER_DESCRIPTOR -> copyMessage(data, output)
                 else -> output.appendFrom(data, 0, data.dataSize())
             }
             output.setDataPosition(0)
             return HookTools.system { target.transact(code, output, reply, flags) }
-        } finally { output.recycle() }
+        } finally {
+            output.recycle()
+        }
     }
 
     private fun callback(original: IBinder): IBinder = callbacks.getOrPut(original) {
@@ -55,8 +63,12 @@ internal class CarServiceRelay(
                 val extras = data.readTypedObject(Bundle.CREATOR)
                 require(data.dataAvail() == 0)
                 extras?.getBinder("extra_messenger")?.let {
-                    extras.putBinder("extra_messenger", CarServiceRelay(it,
-                        BridgePolicy.MESSENGER_DESCRIPTOR, session, authorize))
+                    extras.putBinder(
+                        "extra_messenger", CarServiceRelay(
+                            it,
+                            BridgePolicy.MESSENGER_DESCRIPTOR, session, authorize
+                        )
+                    )
                 }
                 val output = Parcel.obtain()
                 try {
@@ -66,7 +78,9 @@ internal class CarServiceRelay(
                     output.writeTypedObject(extras, 0)
                     output.setDataPosition(0)
                     return original.transact(code, output, reply, flags)
-                } finally { output.recycle() }
+                } finally {
+                    output.recycle()
+                }
             }
         }
     }
@@ -88,9 +102,17 @@ internal class CarServiceRelay(
             when (code) {
                 2 -> Unit
                 3, 4 -> input.readString()
-                5 -> { input.readString(); input.readTypedObject(android.os.ResultReceiver.CREATOR) }
-                6 -> { input.readString(); input.readStrongBinder(); input.readTypedObject(Bundle.CREATOR) }
-                7 -> { input.readString(); input.readStrongBinder() }
+                5 -> {
+                    input.readString(); input.readTypedObject(android.os.ResultReceiver.CREATOR)
+                }
+
+                6 -> {
+                    input.readString(); input.readStrongBinder(); input.readTypedObject(Bundle.CREATOR)
+                }
+
+                7 -> {
+                    input.readString(); input.readStrongBinder()
+                }
             }
             val callbackOffset = input.dataPosition()
             val original = requireNotNull(input.readStrongBinder())
@@ -98,7 +120,9 @@ internal class CarServiceRelay(
             output.setDataSize(0)
             output.setDataPosition(0)
             output.appendFrom(input, 0, callbackOffset)
-            output.writeStrongBinder(callbacks[original] ?: throw SecurityException("Browser not connected"))
+            output.writeStrongBinder(
+                callbacks[original] ?: throw SecurityException("Browser not connected")
+            )
             if (code == 2) callbacks.remove(original)
         }
     }
@@ -117,6 +141,8 @@ internal class CarServiceRelay(
             require(message.what in 1..9) { "Unknown media-browser message" }
             output.writeInterfaceToken(BridgePolicy.MESSENGER_DESCRIPTOR)
             output.writeTypedObject(message, 0)
-        } finally { message.recycle() }
+        } finally {
+            message.recycle()
+        }
     }
 }

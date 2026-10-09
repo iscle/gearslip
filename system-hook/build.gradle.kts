@@ -3,7 +3,10 @@ import java.util.Properties
 plugins { alias(libs.plugins.android.application) }
 
 val signing = Properties().apply {
-    listOf(rootProject.file("keystore.properties"), rootProject.file("gearslip/keystore.properties"))
+    listOf(
+        rootProject.file("keystore.properties"),
+        rootProject.file("gearslip/keystore.properties")
+    )
         .firstOrNull { it.exists() }?.inputStream()?.use { load(it) }
 }
 
@@ -33,7 +36,10 @@ android {
         release {
             signingConfig = signingConfigs.findByName("release")
             isMinifyEnabled = true
-            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
         }
     }
     compileOptions {
@@ -43,7 +49,10 @@ android {
     testOptions {
         unitTests.isIncludeAndroidResources = true
         unitTests.all {
-            it.systemProperty("robolectric.dependency.repo.url", "https://repo.maven.apache.org/maven2")
+            it.systemProperty(
+                "robolectric.dependency.repo.url",
+                "https://repo.maven.apache.org/maven2"
+            )
             it.jvmArgs(
                 "--add-opens=java.base/java.lang=ALL-UNNAMED",
                 "--add-opens=java.base/java.util=ALL-UNNAMED",

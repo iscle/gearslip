@@ -16,13 +16,20 @@ internal class ServiceHooks(private val env: BridgeEnvironment) {
         val ams = "com.android.server.am.ActivityManagerService"
         var count = 0
         for (method in listOf("bindService", "bindServiceInstance")) {
-            count += HookTools.hook(loader, ams, method, before = { beforeBind(it) }, after = { param ->
-                val created = param.getObjectExtra("gearslip.session") as? BridgeSession
-                if (created != null) {
-                    env.bindScope.remove()
-                    if (param.hasThrowable() || (param.result as? Int ?: 0) <= 0) env.close(created)
-                }
-            })
+            count += HookTools.hook(
+                loader,
+                ams,
+                method,
+                before = { beforeBind(it) },
+                after = { param ->
+                    val created = param.getObjectExtra("gearslip.session") as? BridgeSession
+                    if (created != null) {
+                        env.bindScope.remove()
+                        if (param.hasThrowable() || (param.result as? Int ?: 0) <= 0) env.close(
+                            created
+                        )
+                    }
+                })
         }
         val unbinds = HookTools.hook(loader, ams, "unbindService", after = { param ->
             if (param.result == true) {
@@ -31,16 +38,18 @@ internal class ServiceHooks(private val env: BridgeEnvironment) {
                     .forEach(env::close)
             }
         })
-        val permissions = HookTools.hook(loader, ams, "checkComponentPermission", before = { param ->
-            val session = env.bindScope.get() ?: return@hook
-            // Only the selected exported service's declared binding permission. This does
-            // not grant runtime permissions or change permission answers in other operations.
-            val args = param.args
-            val owningUid = args.getOrNull(args.size - 2) as? Int
-            if (session.permission != null && args.firstOrNull() == session.permission &&
-                args.getOrNull(2) == session.hostUid && owningUid == session.appUid &&
-                args.lastOrNull() == true) param.result = PackageManager.PERMISSION_GRANTED
-        })
+        val permissions =
+            HookTools.hook(loader, ams, "checkComponentPermission", before = { param ->
+                val session = env.bindScope.get() ?: return@hook
+                // Only the selected exported service's declared binding permission. This does
+                // not grant runtime permissions or change permission answers in other operations.
+                val args = param.args
+                val owningUid = args.getOrNull(args.size - 2) as? Int
+                if (session.permission != null && args.firstOrNull() == session.permission &&
+                    args.getOrNull(2) == session.hostUid && owningUid == session.appUid &&
+                    args.lastOrNull() == true
+                ) param.result = PackageManager.PERMISSION_GRANTED
+            })
         return count > 0 && unbinds > 0 && permissions > 0
     }
 
@@ -59,11 +68,22 @@ internal class ServiceHooks(private val env: BridgeEnvironment) {
         val original = param.args[index] as IInterface
         val connection = original.asBinder()
         val component = ComponentName(info.packageName, info.name)
-        fun newSession() = BridgeSession(uid, host, info.applicationInfo.uid, component,
-            requireNotNull(intent.action), connection, info.permission)
+        fun newSession() = BridgeSession(
+            uid, host, info.applicationInfo.uid, component,
+            requireNotNull(intent.action), connection, info.permission
+        )
+
         var session = newSession()
-        val proxy = Proxy.newProxyInstance(original.javaClass.classLoader,
-            arrayOf(Class.forName("android.app.IServiceConnection", false, original.javaClass.classLoader))) { _, method, args ->
+        val proxy = Proxy.newProxyInstance(
+            original.javaClass.classLoader,
+            arrayOf(
+                Class.forName(
+                    "android.app.IServiceConnection",
+                    false,
+                    original.javaClass.classLoader
+                )
+            )
+        ) { _, method, args ->
             if (method.name == "asBinder") return@newProxyInstance connection
             val forwarded = args?.copyOf()
             if (method.name == "connected" && forwarded != null) {
@@ -72,17 +92,30 @@ internal class ServiceHooks(private val env: BridgeEnvironment) {
                     if (target == null) {
                         env.close(session)
                     } else if (forwarded[0] == component && env.host(uid) == host) {
-                        if (!session.active.get()) { session = newSession(); env.open(session) }
+                        if (!session.active.get()) {
+                            session = newSession(); env.open(session)
+                        }
                         val expected = if (session.action == BridgePolicy.TEMPLATE_ACTION)
                             BridgePolicy.CAR_DESCRIPTOR else BridgePolicy.BROWSER_DESCRIPTOR
                         if (target.interfaceDescriptor == expected) {
-                            session.serviceDeath?.let { old -> runCatching { session.service?.unlinkToDeath(old, 0) } }
+                            session.serviceDeath?.let { old ->
+                                runCatching {
+                                    session.service?.unlinkToDeath(
+                                        old,
+                                        0
+                                    )
+                                }
+                            }
                             session.service = target
                             val current = session
                             val death = IBinder.DeathRecipient { env.close(current) }
                             current.serviceDeath = death
                             target.linkToDeath(death, 0)
-                            forwarded[1] = CarServiceRelay(target, expected, current) { current.enforceHost(env) }
+                            forwarded[1] = CarServiceRelay(
+                                target,
+                                expected,
+                                current
+                            ) { current.enforceHost(env) }
                         } else {
                             env.close(session)
                             HookTools.log("Unsupported service interface for ${component.flattenToShortString()}")
@@ -94,8 +127,11 @@ internal class ServiceHooks(private val env: BridgeEnvironment) {
                     HookTools.failure("deliver car service", e)
                 }
             }
-            try { method.invoke(original, *(forwarded ?: emptyArray())) }
-            catch (e: InvocationTargetException) { throw e.targetException }
+            try {
+                method.invoke(original, *(forwarded ?: emptyArray()))
+            } catch (e: InvocationTargetException) {
+                throw e.targetException
+            }
         }
         env.open(session)
         param.setObjectExtra("gearslip.session", session)

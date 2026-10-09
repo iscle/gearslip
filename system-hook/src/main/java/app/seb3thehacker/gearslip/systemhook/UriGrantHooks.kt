@@ -10,14 +10,27 @@ import java.util.LinkedHashMap
 
 /** Mirrors only grants a car app actually issues to a Google host, with a session owner. */
 internal class UriGrantHooks(private val env: BridgeEnvironment, private val loader: ClassLoader) {
-    private data class Grant(val uid: Int, val sourcePackage: String, val uri: Uri, val sourceUser: Int, val flags: Int, val owner: Any?)
+    private data class Grant(
+        val uid: Int,
+        val sourcePackage: String,
+        val uri: Uri,
+        val sourceUser: Int,
+        val flags: Int,
+        val owner: Any?
+    )
+
     private val grants = LinkedHashMap<String, Grant>()
     private val worker by lazy { Handler(HandlerThread("GearslipUriGrants").apply { start() }.looper) }
-    @Volatile private var service: Any? = null
+    @Volatile
+    private var service: Any? = null
 
     private fun enqueue(block: () -> Unit) {
         worker.post {
-            try { block() } catch (e: Exception) { HookTools.failure("URI grant worker", e) }
+            try {
+                block()
+            } catch (e: Exception) {
+                HookTools.failure("URI grant worker", e)
+            }
         }
     }
 
@@ -30,8 +43,10 @@ internal class UriGrantHooks(private val env: BridgeEnvironment, private val loa
             if (env.isInternal || !env.ready || p.args.size != 5) return@hook
             // Context.grantUriPermission uses the Intent grant path, not the owner path.
             // Intercept before AMS filters out a Google host which isn't installed.
-            observe(Binder.getCallingUid(), p.args[1] as? String, p.args[2] as? Uri,
-                p.args[3] as Int, p.args[4] as Int, null)
+            observe(
+                Binder.getCallingUid(), p.args[1] as? String, p.args[2] as? Uri,
+                p.args[3] as Int, p.args[4] as Int, null
+            )
         })
         HookTools.hook(loader, ams, "revokeUriPermission", after = { p ->
             if (env.isInternal || p.hasThrowable() || p.args.size != 5) return@hook
@@ -68,35 +83,52 @@ internal class UriGrantHooks(private val env: BridgeEnvironment, private val loa
         val ownerArity = HookTools.findClass(ownerClass, loader).declaredMethods
             .filter { it.name == "removeUriPermission" }.maxOfOrNull { it.parameterCount } ?: 0
         val ownerHooks = HookTools.hook(loader, ownerClass, "removeUriPermission", after = { p ->
-                if (env.isInternal || p.hasThrowable()) return@hook
-                if (p.args.size != ownerArity || p.args.size < 2) return@hook
-                if ((p.args[1] as Int) and Intent.FLAG_GRANT_READ_URI_PERMISSION == 0) return@hook
-                val target = p.args.getOrNull(2) as? String
-                if (target != null && target !in BridgePolicy.googleHosts) return@hook
-                val targetUser = p.args.getOrNull(3) as? Int
-                if (targetUser != null && targetUser != 0 && targetUser != -1) return@hook
-                val uri = p.args[0]?.let { HookTools.field(it, "uri") as Uri }
-                val owner = p.thisObject
-                enqueue {
-                    val affected = synchronized(grants) {
-                        fun matches(grant: Grant) = grant.owner === owner && (uri == null || grant.uri == uri)
-                        val uids = grants.values.filter(::matches).map { it.uid }.toSet()
-                        grants.entries.removeAll { matches(it.value) }
-                        uids
-                    }
-                    affected.forEach(::refresh)
+            if (env.isInternal || p.hasThrowable()) return@hook
+            if (p.args.size != ownerArity || p.args.size < 2) return@hook
+            if ((p.args[1] as Int) and Intent.FLAG_GRANT_READ_URI_PERMISSION == 0) return@hook
+            val target = p.args.getOrNull(2) as? String
+            if (target != null && target !in BridgePolicy.googleHosts) return@hook
+            val targetUser = p.args.getOrNull(3) as? Int
+            if (targetUser != null && targetUser != 0 && targetUser != -1) return@hook
+            val uri = p.args[0]?.let { HookTools.field(it, "uri") as Uri }
+            val owner = p.thisObject
+            enqueue {
+                val affected = synchronized(grants) {
+                    fun matches(grant: Grant) =
+                        grant.owner === owner && (uri == null || grant.uri == uri)
+
+                    val uids = grants.values.filter(::matches).map { it.uid }.toSet()
+                    grants.entries.removeAll { matches(it.value) }
+                    uids
                 }
-            })
+                affected.forEach(::refresh)
+            }
+        })
         return count > 0 && contextGrants > 0 && ownerHooks > 0
     }
 
-    private fun observe(uid: Int, target: String?, uri: Uri?, flags: Int, user: Int, sourceOwner: Any?) {
+    private fun observe(
+        uid: Int,
+        target: String?,
+        uri: Uri?,
+        flags: Int,
+        user: Int,
+        sourceOwner: Any?
+    ) {
         if (target !in BridgePolicy.googleHosts || user != 0 || uri?.scheme != "content" ||
-            flags and Intent.FLAG_GRANT_READ_URI_PERMISSION == 0 || !env.isCarUid(uid)) return
+            flags and Intent.FLAG_GRANT_READ_URI_PERMISSION == 0 || !env.isCarUid(uid)
+        ) return
         val provider = env.inspect { it.resolveContentProvider(uri.authority ?: "", 0) }
         if (provider?.applicationInfo?.uid != uid || !provider.grantUriPermissions) return
-        val grant = Grant(uid, provider.packageName, uri, user, flags and
-            (Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_PREFIX_URI_PERMISSION), sourceOwner)
+        val grant = Grant(
+            uid,
+            provider.packageName,
+            uri,
+            user,
+            flags and
+                    (Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_PREFIX_URI_PERMISSION),
+            sourceOwner
+        )
         synchronized(grants) {
             val key = "$uid:$uri:${System.identityHashCode(sourceOwner)}"
             grants[key] = grant
@@ -107,7 +139,14 @@ internal class UriGrantHooks(private val env: BridgeEnvironment, private val loa
     }
 
     private fun remove(uid: Int, uri: Uri) {
-        synchronized(grants) { grants.entries.removeAll { (_, grant) -> grant.uid == uid && overlaps(uri, grant.uri) } }
+        synchronized(grants) {
+            grants.entries.removeAll { (_, grant) ->
+                grant.uid == uid && overlaps(
+                    uri,
+                    grant.uri
+                )
+            }
+        }
         enqueue { refresh(uid) }
     }
 
@@ -133,22 +172,41 @@ internal class UriGrantHooks(private val env: BridgeEnvironment, private val loa
         if (!session.active.get() || env.host(session.hostUid) != session.hostPackage) return
         try {
             env.inspect {
-                val owner = session.uriOwner ?: (HookTools.call(local(), "newUriPermissionOwner",
-                    "Gearslip:${session.hostUid}:${session.component.flattenToShortString()}") as IBinder)
+                val owner = session.uriOwner ?: (HookTools.call(
+                    local(), "newUriPermissionOwner",
+                    "Gearslip:${session.hostUid}:${session.component.flattenToShortString()}"
+                ) as IBinder)
                     .also { session.uriOwner = it }
-                HookTools.call(manager(), "grantUriPermissionFromOwner", owner, grant.uid,
-                    session.hostPackage, grant.uri, grant.flags, grant.sourceUser, session.hostUid / 100_000)
+                HookTools.call(
+                    manager(),
+                    "grantUriPermissionFromOwner",
+                    owner,
+                    grant.uid,
+                    session.hostPackage,
+                    grant.uri,
+                    grant.flags,
+                    grant.sourceUser,
+                    session.hostUid / 100_000
+                )
             }
-        } catch (e: Exception) { HookTools.failure("mirror artwork grant", e) }
+        } catch (e: Exception) {
+            HookTools.failure("mirror artwork grant", e)
+        }
     }
 
     private fun revoke(session: BridgeSession): Unit = synchronized(session) {
         val owner = session.uriOwner ?: return
         session.uriOwner = null
         try {
-            env.inspect { HookTools.call(local(), "revokeUriPermissionFromOwner", owner, null,
-                Intent.FLAG_GRANT_READ_URI_PERMISSION, 0) }
-        } catch (e: Exception) { HookTools.failure("revoke artwork grant", e) }
+            env.inspect {
+                HookTools.call(
+                    local(), "revokeUriPermissionFromOwner", owner, null,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION, 0
+                )
+            }
+        } catch (e: Exception) {
+            HookTools.failure("revoke artwork grant", e)
+        }
     }
 
     private fun refresh(uid: Int) {
@@ -156,6 +214,6 @@ internal class UriGrantHooks(private val env: BridgeEnvironment, private val loa
     }
 
     private fun overlaps(first: Uri, second: Uri): Boolean = first.authority == second.authority &&
-        (first.pathSegments.take(second.pathSegments.size) == second.pathSegments ||
-            second.pathSegments.take(first.pathSegments.size) == first.pathSegments)
+            (first.pathSegments.take(second.pathSegments.size) == second.pathSegments ||
+                    second.pathSegments.take(first.pathSegments.size) == first.pathSegments)
 }

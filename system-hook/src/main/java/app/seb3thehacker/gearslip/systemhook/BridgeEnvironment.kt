@@ -21,22 +21,27 @@ internal class BridgeEnvironment(private val loader: ClassLoader) {
     val bindScope = ThreadLocal<BridgeSession?>()
     val sessions = ConcurrentHashMap.newKeySet<BridgeSession>()
     private val hosts = ConcurrentHashMap<Int, Pair<Long, String?>>()
-    @Volatile var ready = false
+    @Volatile
+    var ready = false
     var onOpen: (BridgeSession) -> Unit = {}
     var onClose: (BridgeSession) -> Unit = {}
     val afterClose = CopyOnWriteArrayList<(BridgeSession) -> Unit>()
 
     val context: Context by lazy {
         val thread = HookTools.callStatic(
-            HookTools.findClass("android.app.ActivityThread", loader), "currentActivityThread")
+            HookTools.findClass("android.app.ActivityThread", loader), "currentActivityThread"
+        )
         HookTools.call(requireNotNull(thread), "getSystemContext") as Context
     }
 
     fun <T> inspect(block: (PackageManager) -> T): T {
         val previous = internal.get()
         internal.set(true)
-        return try { HookTools.system { block(context.packageManager) } }
-        finally { internal.set(previous) }
+        return try {
+            HookTools.system { block(context.packageManager) }
+        } finally {
+            internal.set(previous)
+        }
     }
 
     /** Package name alone never authorizes a caller; shared UIDs are deliberately excluded. */
@@ -48,7 +53,10 @@ internal class BridgeEnvironment(private val loader: ClassLoader) {
             val packages = pm.getPackagesForUid(uid)?.toList().orEmpty()
             packages.singleOrNull()?.takeIf {
                 it in BridgePolicy.hostPackages &&
-                    pm.checkSignatures(it, BridgePolicy.MODULE) == PackageManager.SIGNATURE_MATCH
+                        pm.checkSignatures(
+                            it,
+                            BridgePolicy.MODULE
+                        ) == PackageManager.SIGNATURE_MATCH
             }
         }
         hosts[uid] = now to result
@@ -60,15 +68,17 @@ internal class BridgeEnvironment(private val loader: ClassLoader) {
         val component = intent.component ?: return null
         return inspect { pm ->
             // Query by action/package too: explicit intents alone ignore intent filters.
-            pm.queryIntentServices(Intent(intent.action).setPackage(component.packageName),
-                PackageManager.MATCH_DISABLED_COMPONENTS)
+            pm.queryIntentServices(
+                Intent(intent.action).setPackage(component.packageName),
+                PackageManager.MATCH_DISABLED_COMPONENTS
+            )
                 .map { it.serviceInfo }
                 .firstOrNull {
                     it.name == component.className && it.exported &&
-                        it.flags and ServiceInfo.FLAG_ISOLATED_PROCESS == 0 &&
-                        it.applicationInfo.enabled && it.applicationInfo.uid >= 10_000 &&
-                        BridgePolicy.sameUser(uid, it.applicationInfo.uid) &&
-                        pm.getComponentEnabledSetting(component) !=
+                            it.flags and ServiceInfo.FLAG_ISOLATED_PROCESS == 0 &&
+                            it.applicationInfo.enabled && it.applicationInfo.uid >= 10_000 &&
+                            BridgePolicy.sameUser(uid, it.applicationInfo.uid) &&
+                            pm.getComponentEnabledSetting(component) !=
                             PackageManager.COMPONENT_ENABLED_STATE_DISABLED_USER
                 }
         }
@@ -77,7 +87,10 @@ internal class BridgeEnvironment(private val loader: ClassLoader) {
     fun isCarUid(uid: Int): Boolean = inspect { pm ->
         uid >= 10_000 && uid / 100_000 == 0 && pm.getPackagesForUid(uid).orEmpty().any { pkg ->
             BridgePolicy.actions.any { action ->
-                pm.queryIntentServices(Intent(action).setPackage(pkg), PackageManager.MATCH_DISABLED_COMPONENTS)
+                pm.queryIntentServices(
+                    Intent(action).setPackage(pkg),
+                    PackageManager.MATCH_DISABLED_COMPONENTS
+                )
                     .any { it.serviceInfo.exported && it.serviceInfo.applicationInfo.enabled }
             }
         }
@@ -122,7 +135,9 @@ internal class BridgeEnvironment(private val loader: ClassLoader) {
                 val appPm = HookTools.findClass("android.app.ApplicationPackageManager", loader)
                 HookTools.callStatic(appPm, "invalidateGetPackagesForUidCache")
             }
-        } catch (e: Exception) { HookTools.failure("invalidate package identity caches", e) }
+        } catch (e: Exception) {
+            HookTools.failure("invalidate package identity caches", e)
+        }
     }
 }
 
@@ -136,10 +151,14 @@ internal class BridgeSession(
     val permission: String?,
 ) {
     val active = AtomicBoolean(true)
-    @Volatile var uriOwner: IBinder? = null
-    @Volatile var service: IBinder? = null
-    @Volatile var connectionDeath: IBinder.DeathRecipient? = null
-    @Volatile var serviceDeath: IBinder.DeathRecipient? = null
+    @Volatile
+    var uriOwner: IBinder? = null
+    @Volatile
+    var service: IBinder? = null
+    @Volatile
+    var connectionDeath: IBinder.DeathRecipient? = null
+    @Volatile
+    var serviceDeath: IBinder.DeathRecipient? = null
     fun enforceHost(env: BridgeEnvironment) {
         check(active.get()) { "Car connection has closed" }
         if (Binder.getCallingUid() != hostUid || env.host(hostUid) != hostPackage)

@@ -27,11 +27,17 @@ internal class PackageHooks(private val env: BridgeEnvironment) {
                     deferred.remove(session.component)?.let { action ->
                         try {
                             env.inspect { pm ->
-                                if (pm.getApplicationInfo(session.component.packageName, 0).enabled &&
-                                    pm.getComponentEnabledSetting(session.component) != PackageManager.COMPONENT_ENABLED_STATE_DISABLED_USER)
+                                if (pm.getApplicationInfo(
+                                        session.component.packageName,
+                                        0
+                                    ).enabled &&
+                                    pm.getComponentEnabledSetting(session.component) != PackageManager.COMPONENT_ENABLED_STATE_DISABLED_USER
+                                )
                                     action()
                             }
-                        } catch (e: Exception) { HookTools.failure("restore component request", e) }
+                        } catch (e: Exception) {
+                            HookTools.failure("restore component request", e)
+                        }
                     }
                 }
             }
@@ -43,28 +49,38 @@ internal class PackageHooks(private val env: BridgeEnvironment) {
         var featureHooks = 0
         var componentSettingHooks = 0
         var packageUidHooks = 0
-        for (className in listOf("com.android.server.pm.PackageManagerService",
-            "com.android.server.pm.ComputerEngine")) {
+        for (className in listOf(
+            "com.android.server.pm.PackageManagerService",
+            "com.android.server.pm.ComputerEngine"
+        )) {
             identityHooks += HookTools.hook(loader, className, "getPackagesForUid", after = { p ->
                 if (activeReader() && p.args.firstOrNull() == 1000 && !p.hasThrowable()) {
                     @Suppress("UNCHECKED_CAST")
                     val packages = (p.result as? Array<String>).orEmpty()
-                    p.result = (packages.toList() + BridgePolicy.GOOGLE_HOST).distinct().toTypedArray()
+                    p.result =
+                        (packages.toList() + BridgePolicy.GOOGLE_HOST).distinct().toTypedArray()
                 }
             })
             packageInfoHooks += HookTools.hook(loader, className, "getPackageInfo", after = { p ->
                 if (activeReader() && p.args.firstOrNull() == BridgePolicy.GOOGLE_HOST &&
-                    p.args.lastOrNull() == 0 && !p.hasThrowable()) {
+                    p.args.lastOrNull() == 0 && !p.hasThrowable()
+                ) {
                     val flags = (p.args[1] as Number).toLong()
                     p.result = systemAlias(flags)
                 }
             })
             packageUidHooks += HookTools.hook(loader, className, "getPackageUid", after = { p ->
                 if (activeReader() && p.args.firstOrNull() == BridgePolicy.GOOGLE_HOST &&
-                    p.args.lastOrNull() == 0 && !p.hasThrowable()) p.result = 1000
+                    p.args.lastOrNull() == 0 && !p.hasThrowable()
+                ) p.result = 1000
             })
             for (query in listOf("queryIntentServices", "queryIntentServicesInternal")) {
-                discoveryHooks += HookTools.hook(loader, className, query, before = { p -> beforeQuery(p) }, after = { p -> afterQuery(p) })
+                discoveryHooks += HookTools.hook(
+                    loader,
+                    className,
+                    query,
+                    before = { p -> beforeQuery(p) },
+                    after = { p -> afterQuery(p) })
             }
             serviceInfoHooks += HookTools.hook(loader, className, "getServiceInfo", before = { p ->
                 val session = env.bindScope.get() ?: return@hook
@@ -73,42 +89,63 @@ internal class PackageHooks(private val env: BridgeEnvironment) {
                 p.setObjectExtra("gearslip.service", true)
             }, after = { p ->
                 if (p.getObjectExtra("gearslip.service") == true && !p.hasThrowable()) {
-                    (p.result as? ServiceInfo)?.let { p.result = ServiceInfo(it).apply { enabled = true } }
+                    (p.result as? ServiceInfo)?.let {
+                        p.result = ServiceInfo(it).apply { enabled = true }
+                    }
                 }
             })
         }
-        for (className in listOf("com.android.server.pm.PackageManagerService",
+        for (className in listOf(
+            "com.android.server.pm.PackageManagerService",
             "com.android.server.pm.PackageManagerService\$IPackageManagerImpl",
-            "com.android.server.pm.IPackageManagerBase")) {
+            "com.android.server.pm.IPackageManagerBase"
+        )) {
             featureHooks += HookTools.hook(loader, className, "hasSystemFeature", before = { p ->
                 if (!env.isInternal && env.ready && p.args.firstOrNull() == BridgePolicy.FEATURE &&
-                    env.host(Binder.getCallingUid()) != null) p.result = true
+                    env.host(Binder.getCallingUid()) != null
+                ) p.result = true
             })
-            componentSettingHooks += HookTools.hook(loader, className, "setComponentEnabledSetting", before = { p ->
-                if (env.isInternal || !env.ready) return@hook
-                val component = p.args.firstOrNull() as? ComponentName ?: return@hook
-                if (p.args.getOrNull(3) != 0) return@hook
-                deferred.remove(component)
-                if (!BridgePolicy.canDeferComponentSetting(p.args[3] as Int, p.args[1] as Int, p.args[2] as Int))
-                    return@hook
-                if (env.activeComponent(component, Binder.getCallingUid())) {
-                    defer(component, p, p.args.clone())
-                    p.result = null
-                }
-            })
+            componentSettingHooks += HookTools.hook(
+                loader,
+                className,
+                "setComponentEnabledSetting",
+                before = { p ->
+                    if (env.isInternal || !env.ready) return@hook
+                    val component = p.args.firstOrNull() as? ComponentName ?: return@hook
+                    if (p.args.getOrNull(3) != 0) return@hook
+                    deferred.remove(component)
+                    if (!BridgePolicy.canDeferComponentSetting(
+                            p.args[3] as Int,
+                            p.args[1] as Int,
+                            p.args[2] as Int
+                        )
+                    )
+                        return@hook
+                    if (env.activeComponent(component, Binder.getCallingUid())) {
+                        defer(component, p, p.args.clone())
+                        p.result = null
+                    }
+                })
             HookTools.hook(loader, className, "setComponentEnabledSettings", before = { p ->
                 if (env.isInternal || !env.ready) return@hook
                 val settings = p.args.firstOrNull() as? List<*> ?: return@hook
                 if (p.args.getOrNull(1) != 0) return@hook
                 val caller = Binder.getCallingUid()
                 val remaining = settings.filter { entry ->
-                    val component = entry?.let { HookTools.call(it, "getComponentName") } as? ComponentName
+                    val component =
+                        entry?.let { HookTools.call(it, "getComponentName") } as? ComponentName
                     if (component != null) deferred.remove(component)
-                    val ordinary = entry != null && BridgePolicy.canDeferComponentSetting(0,
+                    val ordinary = entry != null && BridgePolicy.canDeferComponentSetting(
+                        0,
                         HookTools.call(entry, "getEnabledState") as Int,
-                        HookTools.call(entry, "getEnabledFlags") as Int)
-                    val keep = component == null || !ordinary || !env.activeComponent(component, caller)
-                    if (!keep) defer(requireNotNull(component), p, p.args.clone().apply { this[0] = listOf(entry) })
+                        HookTools.call(entry, "getEnabledFlags") as Int
+                    )
+                    val keep =
+                        component == null || !ordinary || !env.activeComponent(component, caller)
+                    if (!keep) defer(
+                        requireNotNull(component),
+                        p,
+                        p.args.clone().apply { this[0] = listOf(entry) })
                     keep
                 }
                 if (remaining.size != settings.size) {
@@ -117,12 +154,17 @@ internal class PackageHooks(private val env: BridgeEnvironment) {
             })
         }
         return identityHooks > 0 && packageInfoHooks > 0 && discoveryHooks > 0 &&
-            serviceInfoHooks > 0 && featureHooks > 0 && componentSettingHooks > 0 && packageUidHooks > 0
+                serviceInfoHooks > 0 && featureHooks > 0 && componentSettingHooks > 0 && packageUidHooks > 0
     }
 
-    private fun activeReader() = !env.isInternal && env.ready && env.readerIsActive(Binder.getCallingUid())
+    private fun activeReader() =
+        !env.isInternal && env.ready && env.readerIsActive(Binder.getCallingUid())
 
-    private fun defer(component: ComponentName, p: XC_MethodHook.MethodHookParam, args: Array<Any?>) {
+    private fun defer(
+        component: ComponentName,
+        p: XC_MethodHook.MethodHookParam,
+        args: Array<Any?>
+    ) {
         val method = p.method
         val receiver = p.thisObject
         deferred[component] = { XposedBridge.invokeOriginalMethod(method, receiver, args); Unit }
@@ -136,10 +178,16 @@ internal class PackageHooks(private val env: BridgeEnvironment) {
             platform.writeToParcel(parcel, 0)
             parcel.setDataPosition(0)
             PackageInfo.CREATOR.createFromParcel(parcel)
-        } finally { parcel.recycle() }
+        } finally {
+            parcel.recycle()
+        }
         result.apply {
             packageName = BridgePolicy.GOOGLE_HOST
-            applicationInfo = applicationInfo?.let { ApplicationInfo(it).apply { packageName = BridgePolicy.GOOGLE_HOST } }
+            applicationInfo = applicationInfo?.let {
+                ApplicationInfo(it).apply {
+                    packageName = BridgePolicy.GOOGLE_HOST
+                }
+            }
             // Identity is the actual relay's UID and signing information, not a Google
             // certificate. The inspected validators explicitly trust the system UID.
             setLongVersionCode(144_000_000L)
@@ -166,15 +214,23 @@ internal class PackageHooks(private val env: BridgeEnvironment) {
     private fun afterQuery(p: XC_MethodHook.MethodHookParam) {
         if (p.getObjectExtra("gearslip.query") != true || p.hasThrowable()) return
         val original = p.result ?: return
-        val list = (if (original is List<*>) original else HookTools.call(original, "getList")) as? List<*> ?: return
+        val list =
+            (if (original is List<*>) original else HookTools.call(original, "getList")) as? List<*>
+                ?: return
         val result = list.filterIsInstance<ResolveInfo>().filter { ri ->
             val info = ri.serviceInfo ?: return@filter false
             info.exported && info.applicationInfo.enabled && env.inspect { pm ->
                 pm.getComponentEnabledSetting(ComponentName(info.packageName, info.name)) !=
-                    PackageManager.COMPONENT_ENABLED_STATE_DISABLED_USER
+                        PackageManager.COMPONENT_ENABLED_STATE_DISABLED_USER
             }
-        }.map { ri -> ResolveInfo(ri).apply { serviceInfo = ServiceInfo(ri.serviceInfo).apply { enabled = true } } }
-        p.result = if (original is List<*>) result else original.javaClass.getConstructor(List::class.java).newInstance(result)
+        }.map { ri ->
+            ResolveInfo(ri).apply {
+                serviceInfo = ServiceInfo(ri.serviceInfo).apply { enabled = true }
+            }
+        }
+        p.result =
+            if (original is List<*>) result else original.javaClass.getConstructor(List::class.java)
+                .newInstance(result)
     }
 
     private fun addDisabledFlag(p: XC_MethodHook.MethodHookParam, index: Int) {

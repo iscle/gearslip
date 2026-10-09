@@ -4,7 +4,8 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ReflectionBoundaryTest {
-    @Test fun missingOemMethodIsAnOrdinaryRecoverableFailure() {
+    @Test
+    fun missingOemMethodIsAnOrdinaryRecoverableFailure() {
         val missing = NoSuchMethodError("OEM API")
         val failure = assertThrows(IllegalStateException::class.java) {
             HookTools.reflect<Unit> { throw missing }
@@ -12,7 +13,8 @@ class ReflectionBoundaryTest {
         assertSame(missing, failure.cause)
     }
 
-    @Test fun virtualMachineFailureIsNotSilentlySwallowed() {
+    @Test
+    fun virtualMachineFailureIsNotSilentlySwallowed() {
         val fatal = OutOfMemoryError("simulated")
         val failure = assertThrows(OutOfMemoryError::class.java) {
             HookTools.reflect<Unit> { throw fatal }

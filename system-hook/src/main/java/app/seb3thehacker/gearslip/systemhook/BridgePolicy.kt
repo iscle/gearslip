@@ -16,9 +16,11 @@ internal object BridgePolicy {
     val actions = setOf(TEMPLATE_ACTION, BROWSER_ACTION)
 
     fun sameUser(first: Int, second: Int) = first / 100_000 == second / 100_000
+
     // Only ordinary self-component operations can be replayed with system identity.
     fun canDeferComponentSetting(user: Int, state: Int, flags: Int) =
         user == 0 && state in 0..2 && flags in 0..1
+
     fun allowedTransaction(descriptor: String, code: Int): Boolean = when (descriptor) {
         CAR_DESCRIPTOR -> code in 2..12 || code == 16_777_215
         BROWSER_DESCRIPTOR -> code in 1..7
