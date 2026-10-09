@@ -10,8 +10,8 @@ responsibility of Gearslip.
 This branch contains the module, its tests, and Gearslip's bridge detection.
 When the bridge is active, Gearslip lifts the template filter for confirmed host
 authorization rejections (currently Spotify's browse screen). Other app filters
-and compatibility badges remain unchanged. The host work required to use Spotify
-templates fully is described in [HOST-INTEGRATION.md](HOST-INTEGRATION.md).
+and compatibility badges remain unchanged. Full Spotify template support still
+requires Gearslip's media playback host and session-token integration.
 
 ## Build and install
 
