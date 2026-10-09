@@ -7,9 +7,11 @@ It never loads hooks into Waze, Spotify, Gearslip, or any other application proc
 Car projection, templates, navigation, playback and user interaction remain the
 responsibility of Gearslip.
 
-This branch contains the module and its tests. **Gearslip's application source is
-unchanged.** The host work required to use Spotify templates fully is described
-in [HOST-INTEGRATION.md](HOST-INTEGRATION.md).
+This branch contains the module, its tests, and Gearslip's bridge detection.
+When the bridge is active, Gearslip lifts the template filter for confirmed host
+authorization rejections (currently Spotify's browse screen). Other app filters
+and compatibility badges remain unchanged. The host work required to use Spotify
+templates fully is described in [HOST-INTEGRATION.md](HOST-INTEGRATION.md).
 
 ## Build and install
 
@@ -21,7 +23,7 @@ Use the repository's Gradle wrapper, Android SDK 37 and Java 21:
 ```
 
 The module APK is `build/system-hook/outputs/apk/debug/system-hook-debug.apk`.
-The unmodified host APK is `build/Gearslip-debug.apk`.
+The Gearslip host APK is `build/Gearslip-debug.apk`.
 Build the host clean: its upstream APK-renaming task deletes Gradle's original
 output, which can produce an incomplete APK on a subsequent incremental package.
 This branch does not change that host build task.

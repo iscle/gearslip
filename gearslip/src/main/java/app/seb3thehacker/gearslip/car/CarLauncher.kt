@@ -57,6 +57,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Warning
 import app.seb3thehacker.gearslip.host.KnownApps
 import app.seb3thehacker.gearslip.host.CarAppCatalog
+import app.seb3thehacker.gearslip.host.SystemCarHost
 import app.seb3thehacker.gearslip.host.TemplateApp
 import app.seb3thehacker.gearslip.media.MediaApp
 import app.seb3thehacker.gearslip.media.MediaCatalog
@@ -114,11 +115,14 @@ internal object LauncherCache {
     val state: StateFlow<List<Entry>?> = flow.asStateFlow()
 
     val entries: List<Entry>? get() = flow.value
+    private var cachedBridgeAvailable: Boolean? = null
 
     /** Returns the scan if there is one; [force] rescans. Synchronized so two callers share one scan. */
     @Synchronized
     fun load(context: Context, force: Boolean = false): List<Entry> {
-        if (!force) entries?.let { return it }
+        val bridgeAvailable = SystemCarHost.isAvailable(context)
+        // Rebuild when bridge availability changes so cached filtering cannot keep apps hidden.
+        if (!force && cachedBridgeAvailable == bridgeAvailable) entries?.let { return it }
         fun iconOf(pkg: String) = runCatching {
             context.packageManager.getApplicationIcon(pkg).toBitmap(128, 128).asImageBitmap()
         }.getOrNull()
@@ -138,10 +142,8 @@ internal object LauncherCache {
 
         val nav = navApps
             .filter { it.component.packageName !in messagingPackages }
-            // An app whose template screen is rejected but whose player works through Gearslip
-            // (Spotify) shows only its player tile - a "· Browse" tile beside it would just report
-            // that the car screen isn't supported.
-            .filter { !(KnownApps.screenBroken(it.component.packageName) && KnownApps.playerWorks(it.component.packageName)) }
+            // Only lift host-authorization exclusions; missing screens and duplicate tiles stay filtered.
+            .filter { bridgeAvailable || !(KnownApps.hostRejected(it.component.packageName) && KnownApps.playerWorks(it.component.packageName)) }
             .map {
                 val label = if (it.component.packageName in mediaPackages) "${it.label} · Browse" else it.label
                 Entry(label, iconOf(it.component.packageName), template = it)
@@ -151,7 +153,10 @@ internal object LauncherCache {
         val messaging = messagingApps
             .filter { it.packageName !in mediaPackages }
             .map { Entry(it.label, iconOf(it.packageName), messaging = it) }
-        return (nav + media + messaging).sortedBy { it.label.lowercase() }.also { flow.value = it }
+        return (nav + media + messaging).sortedBy { it.label.lowercase() }.also {
+            cachedBridgeAvailable = bridgeAvailable
+            flow.value = it
+        }
     }
 }
 
@@ -258,7 +263,7 @@ fun CarLauncher() {
         return Tile(
             entry.label, entry.icon, entry.builtIn?.glyph,
             verified = pkg != null && !KnownApps.isPartial(pkg) && (KnownApps.works(pkg) || (entry.media != null && KnownApps.playerWorks(pkg))),
-            broken = pkg != null && (KnownApps.isBroken(pkg) || (entry.template != null && KnownApps.screenBroken(pkg))),
+            broken = pkg != null && (KnownApps.isBroken(pkg) || (entry.template != null && KnownApps.hostRejected(pkg))),
             partial = pkg != null && KnownApps.isPartial(pkg),
             onLongClick = id?.let { { navigator.showAppMenu(it) } },
         ) { openApp(entry, id?.let { running[it] }, navigator, frame) }

@@ -9,9 +9,10 @@ The initial implementation was built locally on 2026-10-09.
 | Module lint                         | No issues                                                                                              |
 | Module JVM tests                    | 18 passed: 12 Android parcel cases across API 31 and 36, 4 policy tests and 2 reflection-failure tests |
 | Device-test APK                     | Compiles; shares the parcel tests with the JVM suite                                                   |
-| Original Gearslip tests             | 28 passed                                                                                              |
-| Original Gearslip debug APK         | Clean build; signature matches the module debug APK                                                    |
-| Gearslip application source         | Unchanged from upstream                                                                                |
+| Gearslip host tests                 | 28 passed after bridge-detection integration                                                            |
+| Gearslip host debug APK             | Clean build with bridge-detection integration                                                           |
+| Gearslip host lint                  | Blocked by 106 errors in unchanged files; no errors in changed files                                    |
+| Gearslip application source         | Bridge detection and selective visibility for host-authorization rejections                             |
 | Xposed execution in system_server   | **Not yet runtime-tested**                                                                             |
 | Waze / Spotify end-to-end operation | **Not yet runtime-tested**                                                                             |
 

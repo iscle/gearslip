@@ -1,13 +1,14 @@
 # Remaining Gearslip implementation
 
 The system module supplies access and identity. It deliberately does not implement
-car rendering, car protocol services or media playback. This branch leaves
-`gearslip/src/` unchanged at upstream commit
-`246f571a86e6a6b7f20e05e651eae12257317685`.
+car rendering, car protocol services or media playback. Gearslip now detects the
+running bridge and lifts its template filter for confirmed host-authorization
+rejections. The remaining host implementation is described below.
 
 ## Detect the running bridge
 
-Use `context.packageManager.hasSystemFeature("app.seb3thehacker.gearslip.SYSTEM_CAR_HOST")`.
+Implemented in `host/SystemCarHost.kt` using
+`context.packageManager.hasSystemFeature("app.seb3thehacker.gearslip.SYSTEM_CAR_HOST")`.
 The system hook returns true only to a host with the allowed package and matching
 module signing identity. Merely finding the installed module APK is insufficient:
 it may be disabled, scoped incorrectly, or require a reboot.
@@ -19,10 +20,15 @@ system bridge validates that identity before rewriting it on the selected connec
 
 ## Make template apps reachable
 
-In `car/CarLauncher.kt`, condition the broken-template/player-only filter on the
-bridge being unavailable. It currently removes Spotify's template tile even if
-the system returns an enabled service. This is a local Kotlin predicate and cannot
-be fixed by a system permission hook.
+Implemented in `car/CarLauncher.kt`: the authorization-rejected/player-only filter
+is lifted when the bridge is available, exposing Spotify's template tile. The
+launcher rechecks availability on each scan request and rebuilds its cached list
+if the result changes. A failed capability query uses the original filtering.
+
+Only `KnownApps.hostRejected` entries qualify. Catalog exclusions for missing car
+screens, messaging replacement, media deduplication, Android Auto exclusions,
+compatibility badges and navigation autostart rules remain unchanged. The module
+being active does not establish that a missing host feature has been implemented.
 
 In `host/CarAppCatalog.kt`, include `androidx.car.app.category.MEDIA` in category
 discovery. A returned disabled-by-default template service is bindable through the

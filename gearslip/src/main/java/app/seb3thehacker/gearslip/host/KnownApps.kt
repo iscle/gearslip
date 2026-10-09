@@ -35,14 +35,14 @@ object KnownApps {
     /**
      * Apps whose car screen refuses Gearslip but whose player works. When the player covers the
      * app (see [playerWorks]) the launcher drops the dead "· Browse" tile entirely rather than
-     * show it; otherwise that tile gets a red X. Car library 1.9 and later accepts only Google's
-     * host on a phone.
+     * show it unless the system bridge is active; otherwise that tile gets a red X.
+     * Only confirmed host-authorization rejections belong here, not missing host features.
      */
-    private val brokenScreen = setOf(
+    private val hostRejectedScreens = setOf(
         "com.spotify.music", // Spotify 9.1.86 and later: car library 1.9 rejects Gearslip
     )
 
-    fun screenBroken(packageName: String): Boolean = packageName in brokenScreen
+    fun hostRejected(packageName: String): Boolean = packageName in hostRejectedScreens
 
     /**
      * Registers a car template service but never gives Gearslip a usable screen - left off the
