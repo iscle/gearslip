@@ -36,6 +36,7 @@ internal class UriGrantHooks(private val env: BridgeEnvironment, private val loa
 
     fun install(): Boolean {
         env.onOpen = { session -> replay(session) }
+        // Avoid grant-manager cleanup while running inside a bind or Binder-death callback.
         env.onClose = { session -> enqueue { revoke(session) } }
         val clazz = "com.android.server.uri.UriGrantsManagerService"
         val ams = "com.android.server.am.ActivityManagerService"
@@ -119,12 +120,14 @@ internal class UriGrantHooks(private val env: BridgeEnvironment, private val loa
             flags and Intent.FLAG_GRANT_READ_URI_PERMISSION == 0 || !env.isCarUid(uid)
         ) return
         val provider = env.inspect { it.resolveContentProvider(uri.authority ?: "", 0) }
+        // A car app may mirror only its own provider's grantable content.
         if (provider?.applicationInfo?.uid != uid || !provider.grantUriPermissions) return
         val grant = Grant(
             uid,
             provider.packageName,
             uri,
             user,
+            // Artwork needs read access; never carry write or persistable privileges across.
             flags and
                     (Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_PREFIX_URI_PERMISSION),
             sourceOwner
@@ -132,6 +135,7 @@ internal class UriGrantHooks(private val env: BridgeEnvironment, private val loa
         synchronized(grants) {
             val key = "$uid:$uri:${System.identityHashCode(sourceOwner)}"
             grants[key] = grant
+            // Retain pre-bind artwork grants without allowing an unbounded system-server cache.
             while (grants.size > 1024) grants.remove(grants.keys.first())
         }
         // Complete these before the app publishes a template using its image URIs.
@@ -139,6 +143,7 @@ internal class UriGrantHooks(private val env: BridgeEnvironment, private val loa
     }
 
     private fun remove(uid: Int, uri: Uri) {
+        // Prune history before replay so a reconnect cannot restore explicitly revoked access.
         synchronized(grants) {
             grants.entries.removeAll { (_, grant) ->
                 grant.uid == uid && overlaps(
@@ -168,15 +173,18 @@ internal class UriGrantHooks(private val env: BridgeEnvironment, private val loa
             .forEach { mirror(session, it) }
     }
 
+    // Serialize owner creation with close/revoke so cleanup cannot miss a newly created grant.
     private fun mirror(session: BridgeSession, grant: Grant): Unit = synchronized(session) {
         if (!session.active.get() || env.host(session.hostUid) != session.hostPackage) return
         try {
             env.inspect {
+                // A separate owner lets disconnect revoke only this connection's mirrored grants.
                 val owner = session.uriOwner ?: (HookTools.call(
                     local(), "newUriPermissionOwner",
                     "Gearslip:${session.hostUid}:${session.component.flattenToShortString()}"
                 ) as IBinder)
                     .also { session.uriOwner = it }
+                // Pass the source UID through Android's grant validation instead of exporting the provider.
                 HookTools.call(
                     manager(),
                     "grantUriPermissionFromOwner",

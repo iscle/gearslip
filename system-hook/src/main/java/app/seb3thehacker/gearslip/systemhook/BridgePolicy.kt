@@ -21,6 +21,7 @@ internal object BridgePolicy {
     fun canDeferComponentSetting(user: Int, state: Int, flags: Int) =
         user == 0 && state in 0..2 && flags in 0..1
 
+    // Unknown protocol methods must not inherit system identity through an unrestricted proxy.
     fun allowedTransaction(descriptor: String, code: Int): Boolean = when (descriptor) {
         CAR_DESCRIPTOR -> code in 2..12 || code == 16_777_215
         BROWSER_DESCRIPTOR -> code in 1..7

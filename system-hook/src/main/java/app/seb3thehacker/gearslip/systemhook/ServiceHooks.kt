@@ -56,6 +56,7 @@ internal class ServiceHooks(private val env: BridgeEnvironment) {
     // This runs inside system_server and intentionally implements its hidden AIDL callback.
     @SuppressLint("PrivateApi")
     private fun beforeBind(param: XC_MethodHook.MethodHookParam) {
+        // Delegating bind entry points must share one session instead of wrapping the callback twice.
         if (!env.ready || env.bindScope.get() != null) return
         val uid = Binder.getCallingUid()
         val host = env.host(uid) ?: return
@@ -84,6 +85,7 @@ internal class ServiceHooks(private val env: BridgeEnvironment) {
                 )
             )
         ) { _, method, args ->
+            // Android tracks unbind and client death by the original connection's Binder identity.
             if (method.name == "asBinder") return@newProxyInstance connection
             val forwarded = args?.copyOf()
             if (method.name == "connected" && forwarded != null) {
@@ -92,6 +94,7 @@ internal class ServiceHooks(private val env: BridgeEnvironment) {
                     if (target == null) {
                         env.close(session)
                     } else if (forwarded[0] == component && env.host(uid) == host) {
+                        // Android can reconnect an existing binding after the service process dies.
                         if (!session.active.get()) {
                             session = newSession(); env.open(session)
                         }
@@ -133,6 +136,7 @@ internal class ServiceHooks(private val env: BridgeEnvironment) {
                 throw e.targetException
             }
         }
+        // Warm services can deliver their callback during bind, so identity must be ready first.
         env.open(session)
         param.setObjectExtra("gearslip.session", session)
         env.bindScope.set(session)

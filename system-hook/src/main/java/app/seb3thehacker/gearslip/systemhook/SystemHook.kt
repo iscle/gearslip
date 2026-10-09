@@ -16,6 +16,7 @@ class SystemHook : IXposedHookLoadPackage {
             val packages = PackageHooks(env).install(param.classLoader)
             val grants = UriGrantHooks(env, param.classLoader).install()
             val services = ServiceHooks(env).install(param.classLoader)
+            // A partial installation must not advertise support or activate dependent overrides.
             env.ready = packages && grants && services
             HookTools.log("installed: packages=$packages grants=$grants services=$services ready=${env.ready}")
         } catch (e: Exception) {

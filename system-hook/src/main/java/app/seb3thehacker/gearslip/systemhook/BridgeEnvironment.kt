@@ -16,8 +16,10 @@ import java.util.concurrent.atomic.AtomicBoolean
 // These queries use system_server's Context, not the installed module's package visibility.
 @SuppressLint("QueryPermissionsNeeded", "PrivateApi")
 internal class BridgeEnvironment(private val loader: ClassLoader) {
+    // Internal package queries must see real identities instead of triggering our own overlays.
     private val internal = ThreadLocal.withInitial { false }
     val isInternal: Boolean get() = internal.get() == true
+    // Limit service and permission overrides to the current bind call, including nested entry points.
     val bindScope = ThreadLocal<BridgeSession?>()
     val sessions = ConcurrentHashMap.newKeySet<BridgeSession>()
     private val hosts = ConcurrentHashMap<Int, Pair<Long, String?>>()
@@ -40,14 +42,17 @@ internal class BridgeEnvironment(private val loader: ClassLoader) {
         return try {
             HookTools.system { block(context.packageManager) }
         } finally {
+            // Restore the previous scope because framework queries can nest.
             internal.set(previous)
         }
     }
 
     /** Package name alone never authorizes a caller; shared UIDs are deliberately excluded. */
     fun host(uid: Int): String? {
+        // Secondary users need separate identity and URI-grant handling before they can be supported.
         if (uid < 10_000 || uid / 100_000 != 0) return null
         val now = SystemClock.elapsedRealtime()
+        // Avoid signature lookups on every transaction while bounding stale trust decisions.
         hosts[uid]?.takeIf { now - it.first < 2_000 }?.let { return it.second }
         val result = inspect { pm ->
             val packages = pm.getPackagesForUid(uid)?.toList().orEmpty()
@@ -116,6 +121,7 @@ internal class BridgeEnvironment(private val loader: ClassLoader) {
     }
 
     fun close(session: BridgeSession): Unit = synchronized(session) {
+        // Explicit unbind and either Binder death can race; cleanup must run only once.
         if (!session.active.compareAndSet(true, false)) return
         sessions.remove(session)
         session.connectionDeath?.let { runCatching { session.connection.unlinkToDeath(it, 0) } }
@@ -160,6 +166,7 @@ internal class BridgeSession(
     @Volatile
     var serviceDeath: IBinder.DeathRecipient? = null
     fun enforceHost(env: BridgeEnvironment) {
+        // Recheck each transaction so passing the relay Binder to another app grants no access.
         check(active.get()) { "Car connection has closed" }
         if (Binder.getCallingUid() != hostUid || env.host(hostUid) != hostPackage)
             throw SecurityException("Car bridge belongs to a different host")

@@ -2,6 +2,7 @@ import java.util.Properties
 
 plugins { alias(libs.plugins.android.application) }
 
+// Host authorization requires Gearslip and this module to share a signing certificate.
 val signing = Properties().apply {
     listOf(
         rootProject.file("keystore.properties"),
@@ -69,11 +70,13 @@ android {
 }
 
 android.sourceSets {
+    // Run the same parcel contracts under Robolectric and on Android to catch wire-format differences.
     getByName("test").kotlin.srcDir("src/sharedTest/java")
     getByName("androidTest").kotlin.srcDir("src/sharedTest/java")
 }
 
 dependencies {
+    // The injector supplies these classes at runtime; bundling them would conflict with it.
     compileOnly(libs.xposed.api)
     testImplementation(libs.junit)
     testImplementation(libs.robolectric)

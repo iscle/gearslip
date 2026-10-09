@@ -13,6 +13,7 @@ internal object HandshakeParcel {
         require(packageField.getString("tag_value") == expectedHost) { "Unexpected host identity" }
         val api = requireNotNull(bundle.getBundle(CLASS + "mHostCarAppApiLevel"))
         require(api.getInt("tag_value", -1) in 1..8) { "Unsupported Car App API" }
+        // The advertised package must match the system UID that forwards the handshake.
         return Bundle(bundle).apply {
             putBundle(packageKey, Bundle(packageField).apply { putString("tag_value", "android") })
         }
@@ -23,6 +24,7 @@ internal object HandshakeParcel {
         require(input.readInt() == 1) { "Missing handshake" }
         val bundle = requireNotNull(input.readBundle(HandshakeParcel::class.java.classLoader))
         val callback = requireNotNull(input.readStrongBinder())
+        // Reject layout changes rather than silently dropping fields from a newer protocol.
         require(input.dataAvail() == 0) { "Unexpected handshake fields" }
         output.writeInterfaceToken(BridgePolicy.CAR_DESCRIPTOR)
         output.writeInt(1)

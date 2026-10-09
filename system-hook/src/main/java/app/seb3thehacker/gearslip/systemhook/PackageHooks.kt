@@ -23,10 +23,12 @@ internal class PackageHooks(private val env: BridgeEnvironment) {
     fun install(loader: ClassLoader): Boolean {
         env.afterClose += { session ->
             handler.post {
+                // Keep a shared service available until its last bridge connection closes.
                 if (!env.activeComponent(session.component, session.appUid)) {
                     deferred.remove(session.component)?.let { action ->
                         try {
                             env.inspect { pm ->
+                                // A later user disable must take precedence over the app's deferred request.
                                 if (pm.getApplicationInfo(
                                         session.component.packageName,
                                         0
@@ -49,10 +51,12 @@ internal class PackageHooks(private val env: BridgeEnvironment) {
         var featureHooks = 0
         var componentSettingHooks = 0
         var packageUidHooks = 0
+        // Newer Android versions move package queries from PMS into ComputerEngine snapshots.
         for (className in listOf(
             "com.android.server.pm.PackageManagerService",
             "com.android.server.pm.ComputerEngine"
         )) {
+            // Keep package lists, package metadata and UID lookups consistent for active car apps.
             identityHooks += HookTools.hook(loader, className, "getPackagesForUid", after = { p ->
                 if (activeReader() && p.args.firstOrNull() == 1000 && !p.hasThrowable()) {
                     @Suppress("UNCHECKED_CAST")
@@ -121,6 +125,7 @@ internal class PackageHooks(private val env: BridgeEnvironment) {
                         )
                     )
                         return@hook
+                    // An app may disable its car service while in use; postpone that self-request.
                     if (env.activeComponent(component, Binder.getCallingUid())) {
                         defer(component, p, p.args.clone())
                         p.result = null
@@ -131,6 +136,7 @@ internal class PackageHooks(private val env: BridgeEnvironment) {
                 val settings = p.args.firstOrNull() as? List<*> ?: return@hook
                 if (p.args.getOrNull(1) != 0) return@hook
                 val caller = Binder.getCallingUid()
+                // Defer only active components; unrelated entries retain normal framework handling.
                 val remaining = settings.filter { entry ->
                     val component =
                         entry?.let { HookTools.call(it, "getComponentName") } as? ComponentName
@@ -167,12 +173,14 @@ internal class PackageHooks(private val env: BridgeEnvironment) {
     ) {
         val method = p.method
         val receiver = p.thisObject
+        // Replay the saved request without passing through our deferral hook again.
         deferred[component] = { XposedBridge.invokeOriginalMethod(method, receiver, args); Unit }
     }
 
     private fun systemAlias(flags: Long): PackageInfo = env.inspect { pm ->
         @Suppress("DEPRECATION")
         val platform = pm.getPackageInfo("android", flags.toInt())
+        // Deep-copy nested signing and application data to avoid mutating cached framework objects.
         val parcel = Parcel.obtain()
         val result = try {
             platform.writeToParcel(parcel, 0)
@@ -236,6 +244,7 @@ internal class PackageHooks(private val env: BridgeEnvironment) {
     private fun addDisabledFlag(p: XC_MethodHook.MethodHookParam, index: Int) {
         val flags = p.args[index] as Number
         val value = flags.toLong() or PackageManager.MATCH_DISABLED_COMPONENTS.toLong()
+        // Framework flag parameters changed from Int to Long across supported Android versions.
         p.args[index] = if (flags is Long) value else value.toInt()
     }
 }

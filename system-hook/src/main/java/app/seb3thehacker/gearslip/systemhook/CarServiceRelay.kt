@@ -15,6 +15,7 @@ internal class CarServiceRelay(
     private val session: BridgeSession,
     private val authorize: () -> Unit,
 ) : Binder() {
+    // Reuse callback handles so later subscription and disconnect calls address the same client.
     private val callbacks = ConcurrentHashMap<IBinder, IBinder>()
 
     override fun onTransact(code: Int, data: Parcel, reply: Parcel?, flags: Int): Boolean {
@@ -40,6 +41,7 @@ internal class CarServiceRelay(
                 else -> output.appendFrom(data, 0, data.dataSize())
             }
             output.setDataPosition(0)
+            // The app validates the relay's system UID against the rewritten host package.
             return HookTools.system { target.transact(code, output, reply, flags) }
         } finally {
             output.recycle()
@@ -62,6 +64,7 @@ internal class CarServiceRelay(
                 val token = data.readTypedObject(MediaSession.Token.CREATOR)
                 val extras = data.readTypedObject(Bundle.CREATOR)
                 require(data.dataAvail() == 0)
+                // Compat clients switch to this second channel for registration and search.
                 extras?.getBinder("extra_messenger")?.let {
                     extras.putBinder(
                         "extra_messenger", CarServiceRelay(

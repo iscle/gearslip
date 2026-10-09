@@ -18,6 +18,7 @@ internal object HookTools {
     }
 
     inline fun <T> system(block: () -> T): T {
+        // Binder threads retain the incoming caller's identity until it is explicitly cleared.
         val identity = Binder.clearCallingIdentity()
         return try {
             block()
