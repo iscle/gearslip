@@ -2,10 +2,11 @@ package app.seb3thehacker.gearslip.systemhook
 
 import android.content.Intent
 import android.net.Uri
-import android.os.Handler
 import android.os.Binder
+import android.os.Handler
 import android.os.HandlerThread
 import android.os.IBinder
+import de.robv.android.xposed.XC_MethodHook
 import java.util.LinkedHashMap
 
 /** Mirrors only grants a car app actually issues to a Google host, with a session owner. */
@@ -35,77 +36,99 @@ internal class UriGrantHooks(private val env: BridgeEnvironment, private val loa
     }
 
     fun install(): Boolean {
-        env.onOpen = { session -> replay(session) }
+        env.onOpen = ::replay
         // Avoid grant-manager cleanup while running inside a bind or Binder-death callback.
         env.onClose = { session -> enqueue { revoke(session) } }
         val clazz = "com.android.server.uri.UriGrantsManagerService"
         val ams = "com.android.server.am.ActivityManagerService"
-        val contextGrants = HookTools.hook(loader, ams, "grantUriPermission", before = { p ->
-            if (env.isInternal || !env.ready || p.args.size != 5) return@hook
-            // Context.grantUriPermission uses the Intent grant path, not the owner path.
-            // Intercept before AMS filters out a Google host which isn't installed.
-            observe(
-                Binder.getCallingUid(), p.args[1] as? String, p.args[2] as? Uri,
-                p.args[3] as Int, p.args[4] as Int, null
-            )
-        })
-        HookTools.hook(loader, ams, "revokeUriPermission", after = { p ->
-            if (env.isInternal || p.hasThrowable() || p.args.size != 5) return@hook
-            if ((p.args[3] as Int) and Intent.FLAG_GRANT_READ_URI_PERMISSION == 0) return@hook
-            val uri = p.args[2] as? Uri ?: return@hook
-            remove(Binder.getCallingUid(), uri)
-        })
-        val count = HookTools.hook(loader, clazz, "grantUriPermissionUnlocked", before = { p ->
-            if (env.isInternal || !env.ready || p.args.size != 6) return@hook
-            if (p.args[1] !in BridgePolicy.googleHosts) return@hook
-            service = p.thisObject
-            val uid = p.args[0] as Int
-            val flags = p.args[3] as Int
-            if (flags and Intent.FLAG_GRANT_READ_URI_PERMISSION == 0 || p.args[5] != 0) return@hook
-            val grantUri = p.args[2] ?: return@hook
-            val uri = HookTools.field(grantUri, "uri") as Uri
-            val user = HookTools.field(grantUri, "sourceUserId") as Int
-            observe(uid, p.args[1] as? String, uri, flags, user, p.args[4])
-        })
-        HookTools.hook(loader, clazz, "revokeUriPermission", after = { p ->
-            if (env.isInternal || p.hasThrowable() || p.args.size != 4) return@hook
-            if ((p.args[3] as Int) and Intent.FLAG_GRANT_READ_URI_PERMISSION == 0) return@hook
-            val uid = p.args[1] as Int
-            val uri = HookTools.field(p.args[2], "uri") as Uri
-            remove(uid, uri)
-        })
-        HookTools.hook(loader, clazz, "removeUriPermissionsForPackageLocked", after = { p ->
-            if (env.isInternal || p.hasThrowable()) return@hook
-            val pkg = p.args.firstOrNull() as? String ?: return@hook
-            synchronized(grants) { grants.entries.removeAll { it.value.sourcePackage == pkg } }
-        })
+        val contextGrants = HookTools.hook(
+            loader, ams, "grantUriPermission", before = ::beforeContextGrant
+        )
+        HookTools.hook(loader, ams, "revokeUriPermission", after = ::afterContextRevocation)
+        val ownerGrants = HookTools.hook(
+            loader, clazz, "grantUriPermissionUnlocked", before = ::beforeOwnerGrant
+        )
+        HookTools.hook(loader, clazz, "revokeUriPermission", after = ::afterServiceRevocation)
+        HookTools.hook(
+            loader, clazz, "removeUriPermissionsForPackageLocked", after = ::afterPackageCleanup
+        )
         // All owner cleanup delegates to the most specific removeUriPermission overload.
         val ownerClass = "com.android.server.uri.UriPermissionOwner"
         val ownerArity = HookTools.findClass(ownerClass, loader).declaredMethods
             .filter { it.name == "removeUriPermission" }.maxOfOrNull { it.parameterCount } ?: 0
-        val ownerHooks = HookTools.hook(loader, ownerClass, "removeUriPermission", after = { p ->
-            if (env.isInternal || p.hasThrowable()) return@hook
-            if (p.args.size != ownerArity || p.args.size < 2) return@hook
-            if ((p.args[1] as Int) and Intent.FLAG_GRANT_READ_URI_PERMISSION == 0) return@hook
-            val target = p.args.getOrNull(2) as? String
-            if (target != null && target !in BridgePolicy.googleHosts) return@hook
-            val targetUser = p.args.getOrNull(3) as? Int
-            if (targetUser != null && targetUser != 0 && targetUser != -1) return@hook
-            val uri = p.args[0]?.let { HookTools.field(it, "uri") as Uri }
-            val owner = p.thisObject
-            enqueue {
-                val affected = synchronized(grants) {
-                    fun matches(grant: Grant) =
-                        grant.owner === owner && (uri == null || grant.uri == uri)
+        val ownerHooks = HookTools.hook(
+            loader, ownerClass, "removeUriPermission",
+            after = { p -> afterOwnerRevocation(p, ownerArity) }
+        )
+        return ownerGrants > 0 && contextGrants > 0 && ownerHooks > 0
+    }
 
-                    val uids = grants.values.filter(::matches).map { it.uid }.toSet()
-                    grants.entries.removeAll { matches(it.value) }
-                    uids
-                }
-                affected.forEach(::refresh)
-            }
-        })
-        return count > 0 && contextGrants > 0 && ownerHooks > 0
+    private fun beforeContextGrant(p: XC_MethodHook.MethodHookParam) {
+        if (env.isInternal || !env.ready || p.args.size != 5) return
+        // Context.grantUriPermission uses the Intent grant path, not the owner path.
+        // Intercept before AMS filters out a Google host which isn't installed.
+        observe(
+            Binder.getCallingUid(), p.args[1] as? String, p.args[2] as? Uri,
+            p.args[3] as Int, p.args[4] as Int, null
+        )
+    }
+
+    private fun afterContextRevocation(p: XC_MethodHook.MethodHookParam) {
+        if (env.isInternal || p.hasThrowable() || p.args.size != 5) return
+        if ((p.args[3] as Int) and Intent.FLAG_GRANT_READ_URI_PERMISSION == 0) return
+        val uri = p.args[2] as? Uri ?: return
+        remove(Binder.getCallingUid(), uri)
+    }
+
+    private fun beforeOwnerGrant(p: XC_MethodHook.MethodHookParam) {
+        if (env.isInternal || !env.ready || p.args.size != 6) return
+        if (p.args[1] !in BridgePolicy.googleHosts) return
+        service = p.thisObject
+        val uid = p.args[0] as Int
+        val flags = p.args[3] as Int
+        if (flags and Intent.FLAG_GRANT_READ_URI_PERMISSION == 0 || p.args[5] != 0) return
+        val grantUri = p.args[2] ?: return
+        val uri = HookTools.field(grantUri, "uri") as Uri
+        val user = HookTools.field(grantUri, "sourceUserId") as Int
+        observe(uid, p.args[1] as? String, uri, flags, user, p.args[4])
+    }
+
+    private fun afterServiceRevocation(p: XC_MethodHook.MethodHookParam) {
+        if (env.isInternal || p.hasThrowable() || p.args.size != 4) return
+        if ((p.args[3] as Int) and Intent.FLAG_GRANT_READ_URI_PERMISSION == 0) return
+        val uid = p.args[1] as Int
+        val uri = HookTools.field(p.args[2], "uri") as Uri
+        remove(uid, uri)
+    }
+
+    private fun afterPackageCleanup(p: XC_MethodHook.MethodHookParam) {
+        if (env.isInternal || p.hasThrowable()) return
+        val pkg = p.args.firstOrNull() as? String ?: return
+        synchronized(grants) { grants.entries.removeAll { it.value.sourcePackage == pkg } }
+    }
+
+    private fun afterOwnerRevocation(p: XC_MethodHook.MethodHookParam, ownerArity: Int) {
+        if (env.isInternal || p.hasThrowable()) return
+        if (p.args.size != ownerArity || p.args.size < 2) return
+        if ((p.args[1] as Int) and Intent.FLAG_GRANT_READ_URI_PERMISSION == 0) return
+        val target = p.args.getOrNull(2) as? String
+        if (target != null && target !in BridgePolicy.googleHosts) return
+        val targetUser = p.args.getOrNull(3) as? Int
+        if (targetUser != null && targetUser != 0 && targetUser != -1) return
+        val uri = p.args[0]?.let { HookTools.field(it, "uri") as Uri }
+        val owner = p.thisObject
+        enqueue { removeOwnerGrants(owner, uri) }
+    }
+
+    private fun removeOwnerGrants(owner: Any?, uri: Uri?) {
+        val affected = synchronized(grants) {
+            fun matches(grant: Grant) = grant.owner === owner && (uri == null || grant.uri == uri)
+
+            val uids = grants.values.filter(::matches).map { it.uid }.toSet()
+            grants.entries.removeAll { matches(it.value) }
+            uids
+        }
+        affected.forEach(::refresh)
     }
 
     private fun observe(
@@ -146,10 +169,7 @@ internal class UriGrantHooks(private val env: BridgeEnvironment, private val loa
         // Prune history before replay so a reconnect cannot restore explicitly revoked access.
         synchronized(grants) {
             grants.entries.removeAll { (_, grant) ->
-                grant.uid == uid && overlaps(
-                    uri,
-                    grant.uri
-                )
+                grant.uid == uid && overlaps(uri, grant.uri)
             }
         }
         enqueue { refresh(uid) }

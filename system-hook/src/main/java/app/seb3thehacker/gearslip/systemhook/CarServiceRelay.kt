@@ -6,6 +6,7 @@ import android.os.Bundle
 import android.os.IBinder
 import android.os.Message
 import android.os.Parcel
+import android.os.ResultReceiver
 import java.util.concurrent.ConcurrentHashMap
 
 /** Only fixed car IPC interfaces are forwarded. Rendering and playback stay in Gearslip. */
@@ -24,12 +25,9 @@ internal class CarServiceRelay(
             reply?.writeString(descriptor)
             return true
         }
-        require(
-            BridgePolicy.allowedTransaction(
-                descriptor,
-                code
-            )
-        ) { "Unsupported car transaction $code" }
+        require(BridgePolicy.allowedTransaction(descriptor, code)) {
+            "Unsupported car transaction $code"
+        }
         val output = Parcel.obtain()
         try {
             when {
@@ -59,32 +57,38 @@ internal class CarServiceRelay(
                 }
                 require(code in 1..4) { "Unsupported browser callback" }
                 if (code != 1) return original.transact(code, data, reply, flags)
-                data.enforceInterface(BridgePolicy.CALLBACK_DESCRIPTOR)
-                val root = data.readString()
-                val token = data.readTypedObject(MediaSession.Token.CREATOR)
-                val extras = data.readTypedObject(Bundle.CREATOR)
-                require(data.dataAvail() == 0)
-                // Compat clients switch to this second channel for registration and search.
-                extras?.getBinder("extra_messenger")?.let {
-                    extras.putBinder(
-                        "extra_messenger", CarServiceRelay(
-                            it,
-                            BridgePolicy.MESSENGER_DESCRIPTOR, session, authorize
-                        )
-                    )
-                }
-                val output = Parcel.obtain()
-                try {
-                    output.writeInterfaceToken(BridgePolicy.CALLBACK_DESCRIPTOR)
-                    output.writeString(root)
-                    output.writeTypedObject(token, 0)
-                    output.writeTypedObject(extras, 0)
-                    output.setDataPosition(0)
-                    return original.transact(code, output, reply, flags)
-                } finally {
-                    output.recycle()
-                }
+                return forwardBrowserConnection(original, data, reply, flags)
             }
+        }
+    }
+
+    private fun forwardBrowserConnection(
+        original: IBinder, data: Parcel, reply: Parcel?, flags: Int
+    ): Boolean {
+        data.enforceInterface(BridgePolicy.CALLBACK_DESCRIPTOR)
+        val root = data.readString()
+        val token = data.readTypedObject(MediaSession.Token.CREATOR)
+        val extras = data.readTypedObject(Bundle.CREATOR)
+        require(data.dataAvail() == 0)
+        // Compat clients switch to this second channel for registration and search.
+        extras?.getBinder("extra_messenger")?.let {
+            extras.putBinder(
+                "extra_messenger", CarServiceRelay(
+                    it,
+                    BridgePolicy.MESSENGER_DESCRIPTOR, session, authorize
+                )
+            )
+        }
+        val output = Parcel.obtain()
+        try {
+            output.writeInterfaceToken(BridgePolicy.CALLBACK_DESCRIPTOR)
+            output.writeString(root)
+            output.writeTypedObject(token, 0)
+            output.writeTypedObject(extras, 0)
+            output.setDataPosition(0)
+            return original.transact(1, output, reply, flags)
+        } finally {
+            output.recycle()
         }
     }
 
@@ -100,34 +104,42 @@ internal class CarServiceRelay(
             output.writeTypedObject(hints, 0)
             output.writeStrongBinder(callback(original))
         } else {
-            // The callback is always the last argument. Copy preceding fields with their
-            // Binder object offsets intact (never marshall/unmarshall a Binder parcel).
-            when (code) {
-                2 -> Unit
-                3, 4 -> input.readString()
-                5 -> {
-                    input.readString(); input.readTypedObject(android.os.ResultReceiver.CREATOR)
-                }
-
-                6 -> {
-                    input.readString(); input.readStrongBinder(); input.readTypedObject(Bundle.CREATOR)
-                }
-
-                7 -> {
-                    input.readString(); input.readStrongBinder()
-                }
-            }
-            val callbackOffset = input.dataPosition()
-            val original = requireNotNull(input.readStrongBinder())
-            require(input.dataAvail() == 0)
-            output.setDataSize(0)
-            output.setDataPosition(0)
-            output.appendFrom(input, 0, callbackOffset)
-            output.writeStrongBinder(
-                callbacks[original] ?: throw SecurityException("Browser not connected")
-            )
-            if (code == 2) callbacks.remove(original)
+            copyBrowserRequest(code, input, output)
         }
+    }
+
+    private fun copyBrowserRequest(code: Int, input: Parcel, output: Parcel) {
+        // The callback is always the last argument. Copy preceding fields with their
+        // Binder object offsets intact (never marshall/unmarshall a Binder parcel).
+        when (code) {
+            2 -> Unit
+            3, 4 -> input.readString()
+            5 -> {
+                input.readString()
+                input.readTypedObject(ResultReceiver.CREATOR)
+            }
+
+            6 -> {
+                input.readString()
+                input.readStrongBinder()
+                input.readTypedObject(Bundle.CREATOR)
+            }
+
+            7 -> {
+                input.readString()
+                input.readStrongBinder()
+            }
+        }
+        val callbackOffset = input.dataPosition()
+        val original = requireNotNull(input.readStrongBinder())
+        require(input.dataAvail() == 0)
+        output.setDataSize(0)
+        output.setDataPosition(0)
+        output.appendFrom(input, 0, callbackOffset)
+        output.writeStrongBinder(
+            callbacks[original] ?: throw SecurityException("Browser not connected")
+        )
+        if (code == 2) callbacks.remove(original)
     }
 
     private fun copyMessage(input: Parcel, output: Parcel) {
