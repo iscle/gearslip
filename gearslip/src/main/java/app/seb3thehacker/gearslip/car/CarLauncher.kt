@@ -142,6 +142,9 @@ internal object LauncherCache {
 
         val nav = navApps
             .filter { it.component.packageName !in messagingPackages }
+            // Without the bridge, an app whose template is rejected but whose player works
+            // (Spotify) shows only its player tile: the extra "· Browse" tile would just report
+            // that the car screen isn't supported.
             // Only lift host-authorization exclusions; missing screens and duplicate tiles stay filtered.
             .filter { bridgeAvailable || !(KnownApps.hostRejected(it.component.packageName) && KnownApps.playerWorks(it.component.packageName)) }
             .map {

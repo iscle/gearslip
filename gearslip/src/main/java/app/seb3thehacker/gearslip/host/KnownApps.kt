@@ -36,6 +36,8 @@ object KnownApps {
      * Apps whose car screen refuses Gearslip but whose player works. When the player covers the
      * app (see [playerWorks]) the launcher drops the dead "· Browse" tile entirely rather than
      * show it unless the system bridge is active; otherwise that tile gets a red X.
+     * Car library 1.9 and later accepts only Google's host on a phone in its normal app-host
+     * validation path; the bridge uses the validator's trusted system-UID exception.
      * Only confirmed host-authorization rejections belong here, not missing host features.
      */
     private val hostRejected = setOf(
