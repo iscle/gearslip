@@ -9,7 +9,6 @@ import android.content.pm.ServiceInfo
 import android.os.Binder
 import android.os.IBinder
 import android.os.SystemClock
-import de.robv.android.xposed.XposedHelpers
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicBoolean
@@ -28,8 +27,8 @@ internal class BridgeEnvironment(private val loader: ClassLoader) {
     val afterClose = CopyOnWriteArrayList<(BridgeSession) -> Unit>()
 
     val context: Context by lazy {
-        val thread = XposedHelpers.callStaticMethod(
-            XposedHelpers.findClass("android.app.ActivityThread", loader), "currentActivityThread")
+        val thread = HookTools.callStatic(
+            HookTools.findClass("android.app.ActivityThread", loader), "currentActivityThread")
         HookTools.call(requireNotNull(thread), "getSystemContext") as Context
     }
 
@@ -118,10 +117,10 @@ internal class BridgeEnvironment(private val loader: ClassLoader) {
         // would leave a window where a handshake sees a previous host's cached identity.
         try {
             HookTools.system {
-                val pm = XposedHelpers.findClass("android.content.pm.PackageManager", loader)
-                HookTools.call(XposedHelpers.getStaticObjectField(pm, "sPackageInfoCache"), "invalidateCache")
-                val appPm = XposedHelpers.findClass("android.app.ApplicationPackageManager", loader)
-                XposedHelpers.callStaticMethod(appPm, "invalidateGetPackagesForUidCache")
+                val pm = HookTools.findClass("android.content.pm.PackageManager", loader)
+                HookTools.call(HookTools.staticField(pm, "sPackageInfoCache"), "invalidateCache")
+                val appPm = HookTools.findClass("android.app.ApplicationPackageManager", loader)
+                HookTools.callStatic(appPm, "invalidateGetPackagesForUidCache")
             }
         } catch (e: Exception) { HookTools.failure("invalidate package identity caches", e) }
     }

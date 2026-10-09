@@ -6,7 +6,6 @@ import android.os.Handler
 import android.os.Binder
 import android.os.HandlerThread
 import android.os.IBinder
-import de.robv.android.xposed.XposedHelpers
 import java.util.LinkedHashMap
 
 /** Mirrors only grants a car app actually issues to a Google host, with a session owner. */
@@ -66,7 +65,7 @@ internal class UriGrantHooks(private val env: BridgeEnvironment, private val loa
         })
         // All owner cleanup delegates to the most specific removeUriPermission overload.
         val ownerClass = "com.android.server.uri.UriPermissionOwner"
-        val ownerArity = XposedHelpers.findClass(ownerClass, loader).declaredMethods
+        val ownerArity = HookTools.findClass(ownerClass, loader).declaredMethods
             .filter { it.name == "removeUriPermission" }.maxOfOrNull { it.parameterCount } ?: 0
         val ownerHooks = HookTools.hook(loader, ownerClass, "removeUriPermission", after = { p ->
                 if (env.isInternal || p.hasThrowable()) return@hook
@@ -113,16 +112,16 @@ internal class UriGrantHooks(private val env: BridgeEnvironment, private val loa
     }
 
     private fun manager(): Any = service ?: env.inspect {
-        val serviceManager = XposedHelpers.findClass("android.os.ServiceManager", loader)
-        val binder = XposedHelpers.callStaticMethod(serviceManager, "getService", "uri_grants")
-        val stub = XposedHelpers.findClass("android.app.IUriGrantsManager\$Stub", loader)
-        requireNotNull(XposedHelpers.callStaticMethod(stub, "asInterface", binder)).also { service = it }
+        val serviceManager = HookTools.findClass("android.os.ServiceManager", loader)
+        val binder = HookTools.callStatic(serviceManager, "getService", "uri_grants")
+        val stub = HookTools.findClass("android.app.IUriGrantsManager\$Stub", loader)
+        requireNotNull(HookTools.callStatic(stub, "asInterface", binder)).also { service = it }
     }
 
     private fun local(): Any {
-        val services = XposedHelpers.findClass("com.android.server.LocalServices", loader)
-        val type = XposedHelpers.findClass("com.android.server.uri.UriGrantsManagerInternal", loader)
-        return requireNotNull(XposedHelpers.callStaticMethod(services, "getService", type))
+        val services = HookTools.findClass("com.android.server.LocalServices", loader)
+        val type = HookTools.findClass("com.android.server.uri.UriGrantsManagerInternal", loader)
+        return requireNotNull(HookTools.callStatic(services, "getService", type))
     }
 
     private fun replay(session: BridgeSession) {
