@@ -38,11 +38,11 @@ object KnownApps {
      * show it unless the system bridge is active; otherwise that tile gets a red X.
      * Only confirmed host-authorization rejections belong here, not missing host features.
      */
-    private val hostRejectedScreens = setOf(
+    private val hostRejected = setOf(
         "com.spotify.music", // Spotify 9.1.86 and later: car library 1.9 rejects Gearslip
     )
 
-    fun hostRejected(packageName: String): Boolean = packageName in hostRejectedScreens
+    fun hostRejected(packageName: String): Boolean = packageName in hostRejected
 
     /**
      * Registers a car template service but never gives Gearslip a usable screen - left off the
