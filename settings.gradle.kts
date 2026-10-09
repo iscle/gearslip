@@ -20,10 +20,13 @@ dependencyResolutionManagement {
         google()
         mavenCentral()
         maven("https://jitpack.io")
+        maven("https://api.xposed.info/") {
+            content { includeGroup("de.robv.android.xposed") }
+        }
     }
 }
 
 rootProject.name = "Gearslip"
 include(":gearslip")
+include(":system-hook")
 // include(":ksdump")
- 

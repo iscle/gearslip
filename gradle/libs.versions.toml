@@ -18,8 +18,12 @@ kotlinxSerializationJson = "1.11.0"
 ossLicenses = "17.5.1"
 webkit = "1.16.0"
 androidxMedia = "1.6.0"
+xposed = "82"
+robolectric = "4.17"
 
 [libraries]
+xposed-api = { group = "de.robv.android.xposed", name = "api", version.ref = "xposed" }
+robolectric = { group = "org.robolectric", name = "robolectric", version.ref = "robolectric" }
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 androidx-junit = { group = "androidx.test.ext", name = "junit", version.ref = "junitVersion" }

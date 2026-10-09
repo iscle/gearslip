@@ -1,0 +1,37 @@
+name: System bridge
+
+on:
+  push:
+    paths:
+      - 'system-hook/**'
+      - 'gradle/**'
+      - 'settings.gradle.kts'
+      - '.github/workflows/system-hook.yml'
+  pull_request:
+    paths:
+      - 'system-hook/**'
+      - 'gradle/**'
+      - 'settings.gradle.kts'
+      - '.github/workflows/system-hook.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+      - run: ./gradlew :system-hook:assembleDebug :system-hook:assembleRelease :system-hook:testDebugUnitTest :system-hook:lintDebug
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gearslip-system-bridge
+          path: |
+            build/system-hook/outputs/apk/debug/*.apk
+            build/system-hook/reports/

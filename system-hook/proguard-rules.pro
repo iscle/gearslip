@@ -1,0 +1,1 @@
+-keep class app.seb3thehacker.gearslip.systemhook.SystemHook { *; }
